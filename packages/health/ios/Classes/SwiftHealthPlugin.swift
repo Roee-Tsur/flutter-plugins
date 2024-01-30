@@ -10,7 +10,6 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
     var headacheType = Set<HKSampleType>()
     var allDataTypes = Set<HKSampleType>()
     var dataTypesDict: [String: HKSampleType] = [:]
-    var nutritionDataTypesDict: [String: HKSampleType] = [:]
     var unitDict: [String: HKUnit] = [:]
     var workoutActivityTypeMap: [String: HKWorkoutActivityType] = [:]
     
@@ -62,45 +61,7 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
     let HEADACHE_MODERATE = "HEADACHE_MODERATE"
     let HEADACHE_SEVERE = "HEADACHE_SEVERE"
     let ELECTROCARDIOGRAM = "ELECTROCARDIOGRAM"
-    
-    /// dietary attributes supported on android
-    let FatTotal = "totalFat"
-    let Sodium = "totalSodium"
-    let FatSaturated = "totalSaturatedFat"
-    let Protein = "totalProtein"
-    let Carbohydrates = "totalTotalCarbs"
-    let EnergyConsumed = "totalCalories"
-    let Sugar = "totalSugar"
-    let Fiber = "totalDietaryFiber"
-    let Potassium = "totalPotassium"
-    let Cholesterol = "totalCholesterol"
-    
-    
-    /// dietary attributes not supported on android
-    let Caffeine = "dietaryCaffeine"
-    let Calcium = "dietaryCalcium"
-    let Copper = "dietaryCopper"
-    let FatMonounsaturated = "dietaryFatMonounsaturated"
-    let FatPolyunsaturated = "dietaryFatPolyunsaturated"
-    let Folate = "dietaryFolate"
-    let Iron = "dietaryIron"
-    let Magnesium = "dietaryMagnesium"
-    let Manganese = "dietaryManganese"
-    let Niacin = "dietaryNiacin"
-    let PantothenicAcid = "dietaryPantothenicAcid"
-    let Phosphorus = "dietaryPhosphorus"
-    let Riboflavin = "dietaryRiboflavin"
-    let Selenium = "dietarySelenium"
-    let Thiamin = "dietaryThiamin"
-    let VitaminA = "dietaryVitaminA"
-    let VitaminB6 = "dietaryVitaminB6"
-    let VitaminB12 = "dietaryVitaminB12"
-    let VitaminC = "dietaryVitaminC"
-    let VitaminD = "dietaryVitaminD"
-    let VitaminE = "dietaryVitaminE"
-    let VitaminK = "dietaryVitaminK"
-    let Zinc = "dietaryZinc"
-    let NUTRIENT = "NUTRIENT"
+    let NUTRITION = "NUTRITION"
     
     // Health Unit types
     // MOLE_UNIT_WITH_MOLAR_MASS, // requires molar mass input - not supported yet
@@ -192,13 +153,6 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
             try! writeData(call: call, result: result)
         }
         
-        else if (call.method.elementsEqual("writeNutritionData")){
-            try! writeNutritionData(call: call, result: result)
-        }
-        else if(call.method.elementsEqual("deleteNutritionData")) {
-            try! deleteNutritionData(call: call, result: result)
-        }
-        
         /// Handle writeAudiogram
         else if call.method.elementsEqual("writeAudiogram") {
             try! writeAudiogram(call: call, result: result)
@@ -207,6 +161,11 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
         /// Handle writeBloodPressure
         else if call.method.elementsEqual("writeBloodPressure") {
             try! writeBloodPressure(call: call, result: result)
+        }
+        
+        /// Handle writeMeal
+        else if (call.method.elementsEqual("writeMeal")){
+            try! writeMeal(call: call, result: result)
         }
         
         /// Handle writeWorkoutData
@@ -232,35 +191,35 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
     
     func hasPermissions(call: FlutterMethodCall, result: @escaping FlutterResult) throws {
         let arguments = call.arguments as? NSDictionary
-        guard let types = arguments?["types"] as? [String],
-              let permissions = arguments?["permissions"] as? [Int],
+        guard var types = arguments?["types"] as? [String],
+              var permissions = arguments?["permissions"] as? [Int],
               types.count == permissions.count
         else {
             throw PluginError(message: "Invalid Arguments!")
         }
         
+        if let nutritionIndex = types.firstIndex(of: NUTRITION) {
+            types.remove(at: nutritionIndex)
+            let nutritionPermission = permissions[nutritionIndex]
+            permissions.remove(at: nutritionIndex)
+            
+            types.append(DIETARY_ENERGY_CONSUMED)
+            permissions.append(nutritionPermission)
+            types.append(DIETARY_CARBS_CONSUMED)
+            permissions.append(nutritionPermission)
+            types.append(DIETARY_PROTEIN_CONSUMED)
+            permissions.append(nutritionPermission)
+            types.append(DIETARY_FATS_CONSUMED)
+            permissions.append(nutritionPermission)
+        }
+        
         for (index, type) in types.enumerated() {
-            
-            if(type == NUTRIENT){
-                
-                for nutritionDataType in nutritionDataTypesDict {
-                    let success = hasPermission(type: nutritionDataType.value, access: permissions[index])
-                    
-                    if (success == nil || success == false) {
-                        result(success)
-                        return
-                    }
-                }
-            }else {
-                let sampleType = dataTypeLookUp(key: type)
-                let success = hasPermission(type: sampleType, access: permissions[index])
-                if success == nil || success == false {
-                    result(success)
-                    return
-                }
+            let sampleType = dataTypeLookUp(key: type)
+            let success = hasPermission(type: sampleType, access: permissions[index])
+            if success == nil || success == false {
+                result(success)
+                return
             }
-            
-            
         }
         
         result(true)
@@ -270,23 +229,15 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
         
         if #available(iOS 13.0, *) {
             let status = healthStore.authorizationStatus(for: type)
-            
-            if(status == HKAuthorizationStatus.sharingAuthorized){
-                return true;
+            switch access {
+            case 0:  // READ
+                return nil
+            case 1:  // WRITE
+                return (status == HKAuthorizationStatus.sharingAuthorized)
+            default:  // READ_WRITE
+                return nil
             }
-            
-            return false;
-            
-            //            switch access {
-            //            case 0: // READ
-            //                return nil
-            //            case 1: // WRITE
-            //                return  (status == HKAuthorizationStatus.sharingAuthorized)
-            //            default: // READ_WRITE
-            //                return nil
-            //            }
-        }
-        else {
+        } else {
             return nil
         }
     }
@@ -303,23 +254,17 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
         var typesToRead = Set<HKSampleType>()
         var typesToWrite = Set<HKSampleType>()
         for (index, key) in types.enumerated() {
-            
-            
-            if(key == NUTRIENT){
-                for nutritionDataType in nutritionDataTypesDict {
-                    
-                    let access = permissions[index]
-                    switch access {
-                    case 0:
-                        typesToRead.insert(nutritionDataType.value)
-                    case 1:
-                        typesToWrite.insert(nutritionDataType.value)
-                    default:
-                        typesToRead.insert(nutritionDataType.value)
-                        typesToWrite.insert(nutritionDataType.value)
-                    }
-                }
-            }else {
+            if (key == NUTRITION) {
+                let caloriesType = dataTypeLookUp(key: DIETARY_ENERGY_CONSUMED)
+                let carbsType = dataTypeLookUp(key: DIETARY_CARBS_CONSUMED)
+                let proteinType = dataTypeLookUp(key: DIETARY_PROTEIN_CONSUMED)
+                let fatType = dataTypeLookUp(key: DIETARY_FATS_CONSUMED)
+                
+                typesToWrite.insert(caloriesType);
+                typesToWrite.insert(carbsType);
+                typesToWrite.insert(proteinType);
+                typesToWrite.insert(fatType);
+            } else {
                 let dataType = dataTypeLookUp(key: key)
                 let access = permissions[index]
                 switch access {
@@ -331,7 +276,6 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
                     typesToRead.insert(dataType)
                     typesToWrite.insert(dataType)
                 }
-                
             }
         }
         
@@ -345,97 +289,6 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
         } else {
             result(false)  // Handle the error here.
         }
-    }
-    
-    func  deleteNutritionData(call: FlutterMethodCall, result: @escaping FlutterResult) throws  {
-        guard let arguments = call.arguments as? NSDictionary,
-              let startDate = (arguments["startTime"] as? NSNumber),
-              let endDate = (arguments["endTime"] as? NSNumber)
-        else {
-            throw PluginError(message: "Invalid Arguments")
-        }
-        
-        let dateFrom = Date(timeIntervalSince1970: (startDate.doubleValue - 1) / 1000)
-        let dateTo = Date(timeIntervalSince1970: (endDate.doubleValue + 1) / 1000)
-        
-        print("Successfully called deleteNutritionData")
-        
-        
-        let predicate = HKQuery.predicateForSamples(withStart: dateFrom, end: dateTo, options: .strictStartDate)
-        
-        for nutritionDataType in nutritionDataTypesDict {
-            
-            HKHealthStore().deleteObjects(of: nutritionDataType.value, predicate: predicate, withCompletion: { (success,count, error) in
-                if let err = error {
-                    print("Error deleting nutrition values Sample: \(err.localizedDescription)")
-                }
-                DispatchQueue.main.async {
-                    result(success)
-                }
-            })
-            
-        }
-        
-    }
-    
-    func writeNutritionData(call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        
-        guard let arguments = call.arguments as? NSDictionary,
-              let startDate = (arguments["startTime"] as? NSNumber),
-              let endDate = (arguments["endTime"] as? NSNumber),
-              let foodName = (arguments["foodName"] as? String)
-        
-       
-                
-        else {
-            throw PluginError(message: "Invalid Arguments")
-        }
-        
-        
-        let dateFrom = Date(timeIntervalSince1970: startDate.doubleValue / 1000)
-        let dateTo = Date(timeIntervalSince1970: endDate.doubleValue / 1000)
-        
-        print("Successfully called writeNutritionData")
-        
-        var samples = Set<HKSample>();
-        
-        for nutritionDataType in nutritionDataTypesDict {
-            
-            let value = (arguments[nutritionDataType.key] as? NSNumber)
-            if(value != nil){
-                
-                
-                
-                let quantity = HKQuantity(unit: unitLookUp(key: nutritionDataType.key), doubleValue: value!.doubleValue)
-                
-                samples.insert(HKQuantitySample(type: nutritionDataType.value as! HKQuantityType, quantity: quantity, start: dateFrom, end: dateTo ))
-                
-                
-            }
-        }
-        
-        guard let type = HKObjectType.correlationType(forIdentifier: HKCorrelationTypeIdentifier.food) else {
-            print("Error getting correlation type");
-            result(false);
-            
-            return;
-        }
-        
-        
-        
-        let correlation = HKCorrelation(type:type , start: dateFrom, end: dateTo, objects: samples, metadata: [
-            HKMetadataKeyFoodType: foodName])
-        
-        HKHealthStore().save(correlation, withCompletion: { (success, error) in
-            if let err = error {
-                print("Error Saving nutrition values correlation: \(err.localizedDescription)")
-            }
-            DispatchQueue.main.async {
-                
-                result(success)
-            }
-        })
-        
     }
     
     func writeData(call: FlutterMethodCall, result: @escaping FlutterResult) throws {
@@ -562,6 +415,65 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
                     result(success)
                 }
             })
+    }
+    
+    func writeMeal(call: FlutterMethodCall, result: @escaping FlutterResult) throws {
+        guard let arguments = call.arguments as? NSDictionary,
+              let startTime = (arguments["startTime"] as? NSNumber),
+              let endTime = (arguments["endTime"] as? NSNumber),
+              let calories = (arguments["caloriesConsumed"] as? Double?) ?? 0,
+              let carbs = (arguments["carbohydrates"] as? Double?) ?? 0,
+              let protein = (arguments["protein"] as? Double?) ?? 0,
+              let fat = (arguments["fatTotal"] as? Double?) ?? 0,
+              let name = (arguments["name"] as? String?),
+              let mealType = (arguments["mealType"] as? String?)
+        else {
+            throw PluginError(message: "Invalid Arguments")
+        }
+        let dateFrom = Date(timeIntervalSince1970: startTime.doubleValue / 1000)
+        let dateTo = Date(timeIntervalSince1970: endTime.doubleValue / 1000)
+            
+        var mealTypeString = mealType ?? "UNKNOWN"
+        var metadata = ["HKFoodMeal": "\(mealTypeString)"]
+        
+        if(name != nil) {
+            metadata[HKMetadataKeyFoodType] = "\(name!)"
+        }
+        
+        var nutrition = Set<HKSample>()
+        
+        let caloriesSample = HKQuantitySample(type: HKSampleType.quantityType(forIdentifier: .dietaryEnergyConsumed)!, quantity: HKQuantity(unit: HKUnit.kilocalorie(), doubleValue: calories), start: dateFrom, end: dateTo, metadata: metadata)
+        nutrition.insert(caloriesSample)
+        
+        if(carbs > 0) {
+            let carbsSample = HKQuantitySample(type: HKSampleType.quantityType(forIdentifier: .dietaryCarbohydrates)!, quantity: HKQuantity(unit: HKUnit.gram(), doubleValue: carbs), start: dateFrom, end: dateTo, metadata: metadata)
+            nutrition.insert(carbsSample)
+        }
+        
+        if(protein > 0) {
+            let proteinSample = HKQuantitySample(type: HKSampleType.quantityType(forIdentifier: .dietaryProtein)!, quantity: HKQuantity(unit: HKUnit.gram(), doubleValue: protein), start: dateFrom, end: dateTo, metadata: metadata)
+            nutrition.insert(proteinSample)
+        }
+        
+        if(fat > 0) {
+            let fatSample = HKQuantitySample(type: HKSampleType.quantityType(forIdentifier: .dietaryFatTotal)!, quantity: HKQuantity(unit: HKUnit.gram(), doubleValue: fat), start: dateFrom, end: dateTo, metadata: metadata)
+            nutrition.insert(fatSample)
+        }
+        
+        if #available(iOS 15.0, *){
+            let meal = HKCorrelation.init(type: HKCorrelationType.init(HKCorrelationTypeIdentifier.food), start: dateFrom, end: dateTo, objects: nutrition, metadata: metadata)
+            
+            HKHealthStore().save(meal, withCompletion: { (success, error) in
+                if let err = error {
+                    print("Error Saving Meal Sample: \(err.localizedDescription)")
+                }
+                DispatchQueue.main.async {
+                    result(success)
+                }
+            })
+        } else {
+            result(false)
+        }
     }
     
     func writeWorkoutData(call: FlutterMethodCall, result: @escaping FlutterResult) throws {
@@ -694,21 +606,21 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
                 }
                 
             case var (samplesCategory as [HKCategorySample]) as Any:
+                
                 if dataTypeKey == self.SLEEP_IN_BED {
                     samplesCategory = samplesCategory.filter { $0.value == 0 }
-                    
-                }
-                if dataTypeKey == self.SLEEP_ASLEEP {
-                    samplesCategory = samplesCategory.filter { $0.value == 1 }
                 }
                 if dataTypeKey == self.SLEEP_AWAKE {
                     samplesCategory = samplesCategory.filter { $0.value == 2 }
                 }
-                if dataTypeKey == self.SLEEP_DEEP {
+                if dataTypeKey == self.SLEEP_ASLEEP {
                     samplesCategory = samplesCategory.filter { $0.value == 3 }
                 }
-                if dataTypeKey == self.SLEEP_REM {
+                if dataTypeKey == self.SLEEP_DEEP {
                     samplesCategory = samplesCategory.filter { $0.value == 4 }
+                }
+                if dataTypeKey == self.SLEEP_REM {
+                    samplesCategory = samplesCategory.filter { $0.value == 5 }
                 }
                 if dataTypeKey == self.HEADACHE_UNSPECIFIED {
                     samplesCategory = samplesCategory.filter { $0.value == 0 }
@@ -779,6 +691,54 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
                         "frequencies": frequencies,
                         "leftEarSensitivities": leftEarSensitivities,
                         "rightEarSensitivities": rightEarSensitivities,
+                        "date_from": Int(sample.startDate.timeIntervalSince1970 * 1000),
+                        "date_to": Int(sample.endDate.timeIntervalSince1970 * 1000),
+                        "source_id": sample.sourceRevision.source.bundleIdentifier,
+                        "source_name": sample.sourceRevision.source.name,
+                    ]
+                }
+                DispatchQueue.main.async {
+                    result(dictionaries)
+                }
+                
+            case let (nutritionSample as [HKCorrelation]) as Any:
+                
+                //let samples = nutritionSample[0].objects(for: HKObjectType.quantityType(forIdentifier: .dietaryEnergyConsumed)!)
+                var calories = 0.0
+                var fat = 0.0
+                var carbs = 0.0
+                var protein = 0.0
+                
+                let name = nutritionSample[0].metadata?[HKMetadataKeyFoodType] as! String
+                let mealType = nutritionSample[0].metadata?["HKFoodMeal"]
+                let samples = nutritionSample[0].objects
+                for sample in samples {
+                    if let quantitySample = sample as? HKQuantitySample {
+                        if (quantitySample.quantityType == HKObjectType.quantityType(forIdentifier: .dietaryEnergyConsumed)){
+                            calories = quantitySample.quantity.doubleValue(for: HKUnit.kilocalorie())
+                        }
+                        if (quantitySample.quantityType == HKObjectType.quantityType(forIdentifier: .dietaryCarbohydrates)){
+                            carbs = quantitySample.quantity.doubleValue(for: HKUnit.gram())
+                        }
+                        if (quantitySample.quantityType == HKObjectType.quantityType(forIdentifier: .dietaryProtein)){
+                            protein = quantitySample.quantity.doubleValue(for: HKUnit.gram())
+                        }
+                        if (quantitySample.quantityType == HKObjectType.quantityType(forIdentifier: .dietaryFatTotal)){
+                            fat = quantitySample.quantity.doubleValue(for: HKUnit.gram())
+                        }
+                    }
+                }
+                
+                
+                let dictionaries = nutritionSample.map { sample -> NSDictionary in
+                    return [
+                        "uuid": "\(sample.uuid)",
+                        "calories": calories,
+                        "carbs": carbs,
+                        "protein": protein,
+                        "fat": fat,
+                        "name": name,
+                        "mealType": mealType,
                         "date_from": Int(sample.startDate.timeIntervalSince1970 * 1000),
                         "date_to": Int(sample.endDate.timeIntervalSince1970 * 1000),
                         "source_id": sample.sourceRevision.source.bundleIdentifier,
@@ -901,72 +861,6 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
     }
     
     func initializeTypes() {
-        unitDict[ACTIVE_ENERGY_BURNED] = HKUnit.kilocalorie()
-        unitDict[BASAL_ENERGY_BURNED] = HKUnit.kilocalorie()
-        unitDict[BLOOD_GLUCOSE] = HKUnit.init(from: "mg/dl")
-        unitDict[BLOOD_OXYGEN] = HKUnit.percent()
-        unitDict[BLOOD_PRESSURE_DIASTOLIC] = HKUnit.millimeterOfMercury()
-        unitDict[BLOOD_PRESSURE_SYSTOLIC] = HKUnit.millimeterOfMercury()
-        unitDict[BODY_FAT_PERCENTAGE] = HKUnit.percent()
-        unitDict[BODY_MASS_INDEX] = HKUnit.init(from: "")
-        unitDict[BODY_TEMPERATURE] = HKUnit.degreeCelsius()
-        unitDict[DIETARY_CARBS_CONSUMED] = HKUnit.gram()
-        unitDict[DIETARY_ENERGY_CONSUMED] = HKUnit.kilocalorie()
-        unitDict[DIETARY_FATS_CONSUMED] = HKUnit.gram()
-        unitDict[DIETARY_PROTEIN_CONSUMED] = HKUnit.gram()
-        unitDict[ELECTRODERMAL_ACTIVITY] = HKUnit.siemen()
-        unitDict[FORCED_EXPIRATORY_VOLUME] = HKUnit.liter()
-        unitDict[HEART_RATE] = HKUnit.init(from: "count/min")
-        unitDict[HEART_RATE_VARIABILITY_SDNN] = HKUnit.secondUnit(with: .milli)
-        unitDict[HEIGHT] = HKUnit.meter()
-        unitDict[RESTING_HEART_RATE] = HKUnit.init(from: "count/min")
-        unitDict[STEPS] = HKUnit.count()
-        unitDict[WAIST_CIRCUMFERENCE] = HKUnit.meter()
-        unitDict[WALKING_HEART_RATE] = HKUnit.init(from: "count/min")
-        unitDict[WEIGHT] = HKUnit.gramUnit(with: .kilo)
-        unitDict[DISTANCE_WALKING_RUNNING] = HKUnit.meter()
-        unitDict[FLIGHTS_CLIMBED] = HKUnit.count()
-        unitDict[WATER] = HKUnit.liter()
-        unitDict[MINDFULNESS] = HKUnit.init(from: "")
-        unitDict[SLEEP_IN_BED] = HKUnit.init(from: "")
-        unitDict[SLEEP_ASLEEP] = HKUnit.init(from: "")
-        unitDict[SLEEP_AWAKE] = HKUnit.init(from: "")
-        unitDict[EXERCISE_TIME] =  HKUnit.minute()
-        unitDict[WORKOUT] = HKUnit.init(from: "")
-        
-        unitDict[Caffeine] = HKUnit.gramUnit(with: .milli)
-        unitDict[Calcium] = HKUnit.gramUnit(with: .milli)
-        unitDict[Carbohydrates] =  HKUnit.gram()
-        unitDict[Copper] = HKUnit.gramUnit(with: .milli)
-        unitDict[EnergyConsumed] = HKUnit.kilocalorie()
-        unitDict[FatMonounsaturated] = HKUnit.gram()
-        unitDict[FatPolyunsaturated] = HKUnit.gram()
-        unitDict[FatSaturated] =  HKUnit.gram()
-        unitDict[FatTotal] = HKUnit.gram()
-        unitDict[Fiber] = HKUnit.gram()
-        unitDict[Folate] = HKUnit.gramUnit(with: .micro)
-        unitDict[Iron] = HKUnit.gramUnit(with: .milli)
-        unitDict[Magnesium] = HKUnit.gramUnit(with: .milli)
-        unitDict[Manganese] =  HKUnit.gramUnit(with: .milli)
-        unitDict[Niacin] =  HKUnit.gramUnit(with: .milli)
-        unitDict[PantothenicAcid] =  HKUnit.gramUnit(with: .milli)
-        unitDict[Phosphorus] =  HKUnit.gramUnit(with: .milli)
-        unitDict[Potassium] =  HKUnit.gramUnit(with: .milli)
-        unitDict[Protein] =  HKUnit.gram()
-        unitDict[Riboflavin] =  HKUnit.gramUnit(with: .milli)
-        unitDict[Selenium] = HKUnit.gramUnit(with: .micro)
-        unitDict[Sodium] = HKUnit.gramUnit(with: .milli)
-        unitDict[Sugar] = HKUnit.gram()
-        unitDict[Thiamin] =  HKUnit.gramUnit(with: .milli)
-        unitDict[VitaminA] = HKUnit.gramUnit(with: .micro)
-        unitDict[VitaminB6] = HKUnit.gramUnit(with: .milli)
-        unitDict[VitaminB12] = HKUnit.gramUnit(with: .micro)
-        unitDict[VitaminC] = HKUnit.gramUnit(with: .milli)
-        unitDict[VitaminD] = HKUnit.gramUnit(with: .micro)
-        unitDict[VitaminE] = HKUnit.gramUnit(with: .milli)
-        unitDict[VitaminK] = HKUnit.gramUnit(with: .micro)
-        unitDict[Zinc] = HKUnit.gramUnit(with: .milli)
-        unitDict[Cholesterol] = HKUnit.gramUnit(with: .milli)
         // Initialize units
         unitDict[GRAM] = HKUnit.gram()
         unitDict[KILOGRAM] = HKUnit.gramUnit(with: .kilo)
@@ -1156,6 +1050,8 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
             
             dataTypesDict[EXERCISE_TIME] = HKSampleType.quantityType(forIdentifier: .appleExerciseTime)!
             dataTypesDict[WORKOUT] = HKSampleType.workoutType()
+            dataTypesDict[NUTRITION] = HKSampleType.correlationType(
+                forIdentifier: .food)!
             
             healthDataTypes = Array(dataTypesDict.values)
         }
@@ -1174,42 +1070,6 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
                 HKSampleType.categoryType(forIdentifier: .irregularHeartRhythmEvent)!,
             ])
         }
-        
-        nutritionDataTypesDict = [
-            Caffeine:   HKSampleType.quantityType(forIdentifier: .dietaryCaffeine)!,
-            Calcium: HKSampleType.quantityType(forIdentifier: .dietaryCalcium)!,
-            Carbohydrates:  HKSampleType.quantityType(forIdentifier: .dietaryCarbohydrates)!,
-            Copper: HKSampleType.quantityType(forIdentifier: .dietaryCopper)!,
-            EnergyConsumed: HKSampleType.quantityType(forIdentifier: .dietaryEnergyConsumed)!,
-            FatMonounsaturated: HKSampleType.quantityType(forIdentifier: .dietaryFatMonounsaturated)!,
-            FatPolyunsaturated: HKSampleType.quantityType(forIdentifier: .dietaryFatPolyunsaturated)!,
-            FatSaturated:  HKSampleType.quantityType(forIdentifier: .dietaryFatSaturated)!,
-            FatTotal: HKSampleType.quantityType(forIdentifier: .dietaryFatTotal)!,
-            Fiber: HKSampleType.quantityType(forIdentifier: .dietaryFiber)!,
-            Folate: HKSampleType.quantityType(forIdentifier: .dietaryFolate)!,
-            Iron: HKSampleType.quantityType(forIdentifier: .dietaryIron)!,
-            Magnesium: HKSampleType.quantityType(forIdentifier: .dietaryMagnesium)!,
-            Manganese:  HKSampleType.quantityType(forIdentifier: .dietaryManganese)!,
-            Niacin:  HKSampleType.quantityType(forIdentifier: .dietaryNiacin)!,
-            PantothenicAcid:  HKSampleType.quantityType(forIdentifier: .dietaryPantothenicAcid)!,
-            Phosphorus:  HKSampleType.quantityType(forIdentifier: .dietaryPhosphorus)!,
-            Potassium:  HKSampleType.quantityType(forIdentifier: .dietaryPotassium)!,
-            Protein:  HKSampleType.quantityType(forIdentifier: .dietaryProtein)!,
-            Riboflavin:  HKSampleType.quantityType(forIdentifier: .dietaryRiboflavin)!,
-            Selenium: HKSampleType.quantityType(forIdentifier: .dietarySelenium)!,
-            Sodium: HKSampleType.quantityType(forIdentifier: .dietarySodium)!,
-            Sugar: HKSampleType.quantityType(forIdentifier: .dietarySugar)!,
-            Thiamin: HKSampleType.quantityType(forIdentifier: .dietaryThiamin)!,
-            VitaminA: HKSampleType.quantityType(forIdentifier: .dietaryVitaminA)!,
-            VitaminB6: HKSampleType.quantityType(forIdentifier: .dietaryVitaminB6)!,
-            VitaminB12: HKSampleType.quantityType(forIdentifier: .dietaryVitaminB12)!,
-            VitaminC: HKSampleType.quantityType(forIdentifier: .dietaryVitaminC)!,
-            VitaminD: HKSampleType.quantityType(forIdentifier: .dietaryVitaminD)!,
-            VitaminE: HKSampleType.quantityType(forIdentifier: .dietaryVitaminE)!,
-            VitaminK: HKSampleType.quantityType(forIdentifier: .dietaryVitaminK)!,
-            Zinc: HKSampleType.quantityType(forIdentifier: .dietaryZinc)!,
-            Cholesterol: HKSampleType.quantityType(forIdentifier: .dietaryCholesterol)!
-        ]
         
         if #available(iOS 13.6, *) {
             dataTypesDict[HEADACHE_UNSPECIFIED] = HKSampleType.categoryType(forIdentifier: .headache)!

@@ -10,6 +10,7 @@ The plugin supports:
 - reading health data using the `getHealthDataFromTypes` method.
 - writing health data using the `writeHealthData` method.
 - writing workouts using the `writeWorkout` method.
+- writing meals on iOS (Apple Health) & Android (Google Fit) using the `writeMeal` method.
 - writing audiograms on iOS using the `writeAudiogram` method.
 - writing blood pressure data using the `writeBloodPressure` method.
 - accessing total step counts using the `getTotalStepsInInterval` method.
@@ -69,6 +70,7 @@ Note that for Android, the target phone **needs** to have [Google Fit](https://w
 | HEADACHE_UNSPECIFIED        | MINUTES                 | yes     |                          |                              |                                        |
 | AUDIOGRAM                   | DECIBEL_HEARING_LEVEL   | yes     |                          |                              |                                        |
 | ELECTROCARDIOGRAM           | VOLT                    | yes     |                          |                              | Requires Apple Watch to write the data |
+| NUTRITION                   | NO_UNIT                 | yes     | yes                      | yes                          |                                        |
 
 ## Setup
 
@@ -133,6 +135,21 @@ Health Connect requires the following lines in the `AndroidManifest.xml` file (a
 </queries>
 ```
 
+In the Health Connect permissions activity there is a link to your privacy policy. You need to grant the Health Connect app access in order to link back to your privacy policy. In the example below, you should either replace `.MainActivity` with an activity that presents the privacy policy or have the Main Activity route the user to the policy. This step may be required to pass Google app review when requesting access to sensitive permissions.
+
+```
+<activity-alias
+     android:name="ViewPermissionUsageActivity"
+     android:exported="true"
+     android:targetActivity=".MainActivity"
+     android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+            <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+        </intent-filter>
+</activity-alias>
+```
+
 ### Android Permissions
 
 Starting from API level 28 (Android 9.0) acessing some fitness data (e.g. Steps) requires a special permission.
@@ -173,6 +190,22 @@ Follow the plugin setup instructions and add the following line before requsting
 ```
 await Permission.activityRecognition.request();
 await Permission.location.request();
+```
+
+### Android 14
+
+This plugin uses the new `registerForActivityResult` when requesting permissions from Health Connect. In order for that to work, the Main app's activity should extend `FlutterFragmentActivity` instead of `FlutterActivity`. This adjustment allows casting from `Activity` to `ComponentActivity` for accessing `registerForActivityResult`.
+
+In your MainActivity.kt file, update the `MainActivity` class so that it extends `FlutterFragmentActivity` instead of the default `FlutterActivity`:
+
+```
+...
+import io.flutter.embedding.android.FlutterFragmentActivity
+...
+
+class MainActivity: FlutterFragmentActivity() {
+...
+}
 ```
 
 ### Android X

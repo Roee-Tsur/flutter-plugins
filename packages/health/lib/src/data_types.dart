@@ -43,12 +43,12 @@ enum HealthDataType {
   SLEEP_SESSION,
   EXERCISE_TIME,
   WORKOUT,
-  NUTRIENT,
   HEADACHE_NOT_PRESENT,
   HEADACHE_MILD,
   HEADACHE_MODERATE,
   HEADACHE_SEVERE,
   HEADACHE_UNSPECIFIED,
+  NUTRITION,
 
   // Heart Rate events (specific to Apple Watch)
   HIGH_HEART_RATE_EVENT,
@@ -113,6 +113,7 @@ const List<HealthDataType> _dataTypeKeysIOS = [
   HealthDataType.HEADACHE_SEVERE,
   HealthDataType.HEADACHE_UNSPECIFIED,
   HealthDataType.ELECTROCARDIOGRAM,
+  HealthDataType.NUTRITION,
 ];
 
 /// List of data types available on Android
@@ -139,12 +140,12 @@ const List<HealthDataType> _dataTypeKeysAndroid = [
   HealthDataType.SLEEP_OUT_OF_BED,
   HealthDataType.SLEEP_SESSION,
   HealthDataType.WATER,
-  HealthDataType.NUTRIENT,
   HealthDataType.WORKOUT,
   HealthDataType.RESTING_HEART_RATE,
   HealthDataType.FLIGHTS_CLIMBED,
   HealthDataType.BASAL_ENERGY_BURNED,
   HealthDataType.RESPIRATORY_RATE,
+  HealthDataType.NUTRITION,
 ];
 
 /// Maps a [HealthDataType] to a [HealthDataUnit].
@@ -205,9 +206,14 @@ const Map<HealthDataType, HealthDataUnit> _dataTypeToUnit = {
   HealthDataType.IRREGULAR_HEART_RATE_EVENT: HealthDataUnit.NO_UNIT,
   HealthDataType.HEART_RATE_VARIABILITY_SDNN: HealthDataUnit.MILLISECOND,
   HealthDataType.ELECTROCARDIOGRAM: HealthDataUnit.VOLT,
+
+  HealthDataType.NUTRITION: HealthDataUnit.NO_UNIT,
 };
 
-const PlatformTypeJsonValue = {PlatformType.IOS: 'ios', PlatformType.ANDROID: 'android'};
+const PlatformTypeJsonValue = {
+  PlatformType.IOS: 'ios',
+  PlatformType.ANDROID: 'android',
+};
 
 /// List of all [HealthDataUnit]s.
 enum HealthDataUnit {
@@ -450,13 +456,14 @@ enum HealthWorkoutActivityType {
 }
 
 enum MealType {
-  MEAL_TYPE_BREAKFAST,
-  MEAL_TYPE_DINNER,
-  MEAL_TYPE_LUNCH,
-  MEAL_TYPE_SNACK,
-  MEAL_TYPE_UNKNOWN,
+  BREAKFAST,
+  LUNCH,
+  DINNER,
+  SNACK,
+  UNKNOWN,
 }
 
+/// Classifications for ECG readings.
 enum ElectrocardiogramClassification {
   NOT_SET,
   SINUS_RHYTHM,
@@ -469,7 +476,8 @@ enum ElectrocardiogramClassification {
 }
 
 /// Extension to assign numbers to [ElectrocardiogramClassification]s
-extension ElectrocardiogramClassificationValue on ElectrocardiogramClassification {
+extension ElectrocardiogramClassificationValue
+    on ElectrocardiogramClassification {
   int get value {
     switch (this) {
       case ElectrocardiogramClassification.NOT_SET:

@@ -18,6 +18,11 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.*
+import androidx.health.connect.client.records.MealType.MEAL_TYPE_BREAKFAST
+import androidx.health.connect.client.records.MealType.MEAL_TYPE_DINNER
+import androidx.health.connect.client.records.MealType.MEAL_TYPE_LUNCH
+import androidx.health.connect.client.records.MealType.MEAL_TYPE_SNACK
+import androidx.health.connect.client.records.MealType.MEAL_TYPE_UNKNOWN
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
@@ -71,7 +76,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
     private var context: Context? = null
     private var threadPoolExecutor: ExecutorService? = null
     private var useHealthConnectIfAvailable: Boolean = false
-    private var healthConnectRequestPermissionsLauncher: ActivityResultLauncher<Set<String>>? = null
+    private var healthConnectRequestPermissionsLauncher:  ActivityResultLauncher<Set<String>>? = null
     private lateinit var healthConnectClient: HealthConnectClient
     private lateinit var scope: CoroutineScope
 
@@ -105,14 +110,13 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
     private var SLEEP_REM = "SLEEP_REM"
     private var SLEEP_OUT_OF_BED = "SLEEP_OUT_OF_BED"
     private var WORKOUT = "WORKOUT"
+    private var NUTRITION = "NUTRITION"
+    private var BREAKFAST = "BREAKFAST"
+    private var LUNCH = "LUNCH"
+    private var DINNER = "DINNER"
+    private var SNACK = "SNACK"
+    private var MEAL_UNKNOWN = "UNKNOWN"
 
-    private var MEAL_TYPE_BREAKFAST = "MEAL_TYPE_BREAKFAST"
-    private var MEAL_TYPE_DINNER = "MEAL_TYPE_DINNER"
-    private var MEAL_TYPE_LUNCH = "MEAL_TYPE_LUNCH"
-    private var MEAL_TYPE_SNACK = "MEAL_TYPE_SNACK"
-    private var MEAL_TYPE_UNKNOWN = "MEAL_TYPE_UNKNOWN"
-
-    private var NUTRIENT = "NUTRIENT"
 
     val workoutTypeMap = mapOf(
         "AEROBICS" to FitnessActivities.AEROBICS,
@@ -413,38 +417,23 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 mResult?.success(false)
             }
         }
-        if (requestCode == HEALTH_CONNECT_RESULT_CODE) {
-            if (resultCode == Activity.RESULT_OK) {
-                if (data != null) {
-                    if(data.extras?.containsKey("request_blocked") == true) {
-                        Log.i("FLUTTER_HEALTH", "Access Denied (to Health Connect) due to too many requests!")
-                        mResult?.success(false)
-                        return false
-                    }
-                }
-                Log.i("FLUTTER_HEALTH", "Access Granted (to Health Connect)!")
-                mResult?.success(true)
-            } else if (resultCode == Activity.RESULT_CANCELED) {
-                Log.i("FLUTTER_HEALTH", "Access Denied (to Health Connect)!")
-                mResult?.success(false)
-            }
-        }
         return false
     }
 
-     private  fun onHealthConnectPermissionCallback(permissionGranted: Set<String>)
-     {
-         if(permissionGranted.isEmpty()) {
-             mResult?.success(false);
-             Log.i("FLUTTER_HEALTH", "Access Denied (to Health Connect)!")
 
-         }else {
-             mResult?.success(true);
-             Log.i("FLUTTER_HEALTH", "Access Granted (to Health Connect)!")
-         }
+    private  fun onHealthConnectPermissionCallback(permissionGranted: Set<String>)
+    {
+        if(permissionGranted.isEmpty()) {
+            mResult?.success(false);
+            Log.i("FLUTTER_HEALTH", "Access Denied (to Health Connect)!")
 
-     }
+        }else {
+            mResult?.success(true);
+            Log.i("FLUTTER_HEALTH", "Access Granted (to Health Connect)!")
+        }
 
+    }
+    
     private fun keyToHealthDataType(type: String): DataType {
         return when (type) {
             BODY_FAT_PERCENTAGE -> DataType.TYPE_BODY_FAT_PERCENTAGE
@@ -466,19 +455,8 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
             SLEEP_AWAKE -> DataType.TYPE_SLEEP_SEGMENT
             SLEEP_IN_BED -> DataType.TYPE_SLEEP_SEGMENT
             WORKOUT -> DataType.TYPE_ACTIVITY_SEGMENT
-            NUTRIENT -> DataType.TYPE_NUTRITION
+            NUTRITION -> DataType.TYPE_NUTRITION
             else -> throw IllegalArgumentException("Unsupported dataType: $type")
-        }
-    }
-
-    private fun keyToMealType(type: String) : Int {
-        return when (type) {
-            MEAL_TYPE_BREAKFAST -> Field.MEAL_TYPE_BREAKFAST
-            MEAL_TYPE_DINNER -> Field.MEAL_TYPE_DINNER
-            MEAL_TYPE_LUNCH -> Field.MEAL_TYPE_LUNCH
-            MEAL_TYPE_SNACK -> Field.MEAL_TYPE_SNACK
-            MEAL_TYPE_UNKNOWN ->   Field.MEAL_TYPE_UNKNOWN
-            else -> throw java.lang.IllegalArgumentException("Unsupported mealType: $type")
         }
     }
 
@@ -502,6 +480,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
             SLEEP_AWAKE -> Field.FIELD_SLEEP_SEGMENT_TYPE
             SLEEP_IN_BED -> Field.FIELD_SLEEP_SEGMENT_TYPE
             WORKOUT -> Field.FIELD_ACTIVITY
+            NUTRITION -> Field.FIELD_NUTRIENTS
             else -> throw IllegalArgumentException("Unsupported dataType: $type")
         }
     }
@@ -573,53 +552,6 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
         }
     }
 
-    private fun deleteNutritionData(call: MethodCall, result: Result){
-        if (useHealthConnectIfAvailable && healthConnectAvailable) {
-            deleteNutritionHCData(call, result)
-            return
-        }
-
-        if (context == null) {
-            result.success(false)
-            return
-        }
-
-        val typesBuilder = FitnessOptions.builder()
-        typesBuilder.addDataType(DataType.TYPE_NUTRITION, FitnessOptions.ACCESS_WRITE)
-
-        val fitnessOptions = typesBuilder.build()
-
-
-        val startTime = call.argument<Long>("startTime")!!
-        val endTime = call.argument<Long>("endTime")!!
-
-        val request = DataDeleteRequest.Builder()
-            .setTimeInterval(startTime-1, endTime+1, TimeUnit.MILLISECONDS)
-            .addDataType(DataType.TYPE_NUTRITION)
-            .build()
-
-
-
-        try {
-            val googleSignInAccount = GoogleSignIn.getAccountForExtension(context!!.applicationContext, fitnessOptions)
-
-            Fitness.getHistoryClient(context!!.applicationContext, googleSignInAccount)
-                .deleteData(request)
-                .addOnSuccessListener {
-                    Log.i("FLUTTER_HEALTH::SUCCESS", "Nutrition Data deleted successfully!")
-                    result.success(true)
-                }
-                .addOnFailureListener { e ->
-                    Log.w("FLUTTER_HEALTH::ERROR", "There was an error deleting the Nutrition Data", e)
-                    result.success(false)
-                }
-        }
-        catch (e3: Exception) {
-            result.success(false)
-        }
-
-    }
-
     /**
      * Save a Blood Pressure measurement with systolic and diastolic values
      */
@@ -675,6 +607,143 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                         result,
                         "There was an error adding the blood pressure data!",
                     ),
+                )
+        } catch (e3: Exception) {
+            result.success(false)
+        }
+    }
+
+    private fun writeMealHC(call: MethodCall, result: Result) {
+        val startTime = Instant.ofEpochMilli(call.argument<Long>("startTime")!!)
+        val endTime = Instant.ofEpochMilli(call.argument<Long>("endTime")!!)
+        val calories = call.argument<Double>("caloriesConsumed")
+        val carbs = call.argument<Double>("carbohydrates") as Double?
+        val protein = call.argument<Double>("protein") as Double?
+        val fat = call.argument<Double>("fatTotal") as Double?
+        val name = call.argument<String>("name")
+        val mealType = call.argument<String>("mealType")!!
+
+        scope.launch {
+            try {
+                val list = mutableListOf<Record>()
+                list.add(
+                    NutritionRecord(
+                        name = name,
+                        energy = calories?.kilocalories,
+                        totalCarbohydrate = carbs?.grams,
+                        protein = protein?.grams,
+                        totalFat = fat?.grams,
+                        startTime = startTime,
+                        startZoneOffset = null,
+                        endTime = endTime,
+                        endZoneOffset = null,
+                        mealType = MapMealTypeToTypeHC[mealType] ?: MEAL_TYPE_UNKNOWN,
+                    ),
+                )
+                healthConnectClient.insertRecords(
+                    list,
+                )
+                result.success(true)
+                Log.i("FLUTTER_HEALTH::SUCCESS", "[Health Connect] Meal was successfully added!")
+
+            } catch (e: Exception) {
+                Log.w(
+                    "FLUTTER_HEALTH::ERROR",
+                    "[Health Connect] There was an error adding the meal",
+                )
+                Log.w("FLUTTER_HEALTH::ERROR", e.message ?: "unknown error")
+                Log.w("FLUTTER_HEALTH::ERROR", e.stackTrace.toString())
+                result.success(false)
+            }
+
+        }
+    }
+
+
+    private fun writeMeal(call: MethodCall, result: Result) {
+        if (useHealthConnectIfAvailable && healthConnectAvailable) {
+            writeMealHC(call, result)
+            return
+        }
+
+        if (context == null) {
+            result.success(false)
+            return
+        }
+
+        val startTime = call.argument<Long>("startTime")!!
+        val endTime = call.argument<Long>("endTime")!!
+        val calories = call.argument<Double>("caloriesConsumed")
+        val carbs = call.argument<Double>("carbohydrates") as Double?
+        val protein = call.argument<Double>("protein") as Double?
+        val fat = call.argument<Double>("fatTotal") as Double?
+        val name = call.argument<String>("name")
+        val mealType = call.argument<String>("mealType")!!
+
+        val dataType = DataType.TYPE_NUTRITION
+
+        val typesBuilder = FitnessOptions.builder()
+        typesBuilder.addDataType(dataType, FitnessOptions.ACCESS_WRITE)
+
+        val dataSource = DataSource.Builder()
+            .setDataType(dataType)
+            .setType(DataSource.TYPE_RAW)
+            .setDevice(Device.getLocalDevice(context!!.applicationContext))
+            .setAppPackageName(context!!.applicationContext)
+            .build()
+
+        val nutrients = mutableMapOf(
+            Field.NUTRIENT_CALORIES to calories?.toFloat()
+        )
+
+        if (carbs != null) {
+            nutrients[Field.NUTRIENT_TOTAL_CARBS] = carbs.toFloat()
+        }
+
+        if (protein != null) {
+            nutrients[Field.NUTRIENT_PROTEIN] = protein.toFloat()
+        }
+
+        if (fat != null) {
+            nutrients[Field.NUTRIENT_TOTAL_FAT] = fat.toFloat()
+        }
+
+        val dataBuilder = DataPoint.builder(dataSource)
+            .setTimeInterval(startTime, endTime, TimeUnit.MILLISECONDS)
+            .setField(Field.FIELD_NUTRIENTS, nutrients)
+
+        if (name != null) {
+            dataBuilder.setField(Field.FIELD_FOOD_ITEM, name as String)
+        }
+
+
+        dataBuilder.setField(
+            Field.FIELD_MEAL_TYPE,
+            MapMealTypeToType[mealType] ?: Field.MEAL_TYPE_UNKNOWN
+        )
+
+
+        val dataPoint = dataBuilder.build()
+
+        val dataSet = DataSet.builder(dataSource)
+            .add(dataPoint)
+            .build()
+
+        val fitnessOptions = typesBuilder.build()
+        try {
+            val googleSignInAccount =
+                GoogleSignIn.getAccountForExtension(context!!.applicationContext, fitnessOptions)
+            Fitness.getHistoryClient(context!!.applicationContext, googleSignInAccount)
+                .insertData(dataSet)
+                .addOnSuccessListener {
+                    Log.i("FLUTTER_HEALTH::SUCCESS", "Meal added successfully!")
+                    result.success(true)
+                }
+                .addOnFailureListener(
+                    errHandler(
+                        result,
+                        "There was an error adding the meal data!"
+                    )
                 )
         } catch (e3: Exception) {
             result.success(false)
@@ -749,86 +818,6 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     result.success(true)
                 }
                 .addOnFailureListener(errHandler(result, "There was an error adding the dataset"))
-        } catch (e3: Exception) {
-            result.success(false)
-        }
-    }
-
-    private fun writeNutritionData(call: MethodCall, result: Result) {
-
-        if (useHealthConnectIfAvailable && healthConnectAvailable) {
-            writeNutritionHCData(call, result)
-            return
-        }
-
-        if (context == null) {
-            result.success(false)
-            return
-        }
-
-
-        val startTime = call.argument<Long>("startTime")!!
-        val endTime = call.argument<Long>("endTime")!!
-
-        val typesBuilder = FitnessOptions.builder()
-        typesBuilder.addDataType(DataType.TYPE_NUTRITION, FitnessOptions.ACCESS_WRITE)
-
-        val dataSource = DataSource.Builder()
-            .setDataType(DataType.TYPE_NUTRITION)
-            .setType(DataSource.TYPE_RAW)
-            .setDevice(Device.getLocalDevice(context!!.applicationContext))
-            .setAppPackageName(context!!.applicationContext)
-            .build()
-
-        val builder = if (startTime == endTime)
-            DataPoint.builder(dataSource)
-                .setTimestamp(startTime, TimeUnit.MILLISECONDS)
-        else
-            DataPoint.builder(dataSource)
-                .setTimeInterval(startTime, endTime, TimeUnit.MILLISECONDS)
-
-        val mealType = call.argument<String>("mealType")!!
-        builder.setField(Field.FIELD_FOOD_ITEM, call.argument<String>("foodName")!!)
-            .setField(Field.FIELD_MEAL_TYPE, keyToMealType(mealType))
-
-
-        val nutrients = mapOf(
-            Field.NUTRIENT_TOTAL_FAT to (call.argument<Double>("totalFat")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_SODIUM to (call.argument<Double>("totalSodium")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_SATURATED_FAT to (call.argument<Double>("totalSaturatedFat")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_PROTEIN to (call.argument<Double>("totalProtein")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_TOTAL_CARBS to (call.argument<Double>("totalTotalCarbs")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_CHOLESTEROL to (call.argument<Double>("totalCholesterol")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_CALORIES to (call.argument<Double>("totalCalories")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_SUGAR to (call.argument<Double>("totalSugar")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_DIETARY_FIBER to (call.argument<Double>("totalDietaryFiber")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_POTASSIUM to (call.argument<Double>("totalPotassium")?.toFloat()  ?: 0f),
-            Field.NUTRIENT_CALCIUM to (call.argument<Double>("dietaryCalcium")?.toFloat() ?: 0f),
-            Field.NUTRIENT_MONOUNSATURATED_FAT to (call.argument<Double>("dietaryFatMonounsaturated")?.toFloat() ?: 0f),
-            Field.NUTRIENT_POLYUNSATURATED_FAT to (call.argument<Double>("dietaryFatPolyunsaturated")?.toFloat() ?: 0f),
-            Field.NUTRIENT_IRON to (call.argument<Double>("dietaryIron")?.toFloat() ?: 0f),
-            Field.NUTRIENT_VITAMIN_A to (call.argument<Double>("dietaryVitaminA")?.toFloat() ?: 0f),
-            Field.NUTRIENT_VITAMIN_C to (call.argument<Double>("dietaryVitaminC")?.toFloat() ?: 0f),
-        )
-
-        builder.setField(Field.FIELD_NUTRIENTS, nutrients)
-
-        val dataSet = DataSet.builder(dataSource)
-            .add(builder.build())
-            .build()
-        val fitnessOptions = typesBuilder.build()
-        try {
-            val googleSignInAccount = GoogleSignIn.getAccountForExtension(context!!.applicationContext, fitnessOptions)
-            Fitness.getHistoryClient(context!!.applicationContext, googleSignInAccount)
-                .insertData(dataSet)
-                .addOnSuccessListener {
-                    Log.i("FLUTTER_HEALTH::SUCCESS", "Nutrition Data added successfully!")
-                    result.success(true)
-                }
-                .addOnFailureListener { e ->
-                    Log.w("FLUTTER_HEALTH::ERROR", "There was an error adding the Nutrition Data", e)
-                    result.success(false)
-                }
         } catch (e3: Exception) {
             result.success(false)
         }
@@ -1089,6 +1078,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                         ),
                     )
             }
+
             DataType.TYPE_ACTIVITY_SEGMENT -> {
                 val readRequest: SessionReadRequest
                 val readRequestBuilder = SessionReadRequest.Builder()
@@ -1118,6 +1108,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                         ),
                     )
             }
+
             else -> {
                 Fitness.getHistoryClient(context!!.applicationContext, googleSignInAccount)
                     .readData(
@@ -1332,6 +1323,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     typesBuilder.addDataType(dataType, FitnessOptions.ACCESS_READ)
                     typesBuilder.addDataType(dataType, FitnessOptions.ACCESS_WRITE)
                 }
+
                 else -> throw IllegalArgumentException("Unknown access type $access")
             }
             if (typeKey == SLEEP_ASLEEP || typeKey == SLEEP_AWAKE || typeKey == SLEEP_IN_BED) {
@@ -1343,6 +1335,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                         typesBuilder.accessSleepSessions(FitnessOptions.ACCESS_READ)
                         typesBuilder.accessSleepSessions(FitnessOptions.ACCESS_WRITE)
                     }
+
                     else -> throw IllegalArgumentException("Unknown access type $access")
                 }
             }
@@ -1354,6 +1347,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                         typesBuilder.accessActivitySessions(FitnessOptions.ACCESS_READ)
                         typesBuilder.accessActivitySessions(FitnessOptions.ACCESS_WRITE)
                     }
+
                     else -> throw IllegalArgumentException("Unknown access type $access")
                 }
             }
@@ -1371,51 +1365,14 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
             return
         }
 
-
         val optionsToRegister = callToHealthTypes(call)
 
-        val lastSignedInAccount = GoogleSignIn.getLastSignedInAccount(context!!);
+        val isGranted = GoogleSignIn.hasPermissions(
+            GoogleSignIn.getLastSignedInAccount(context!!),
+            optionsToRegister,
+        )
 
-        if(lastSignedInAccount == null){
-
-            result.success(false)
-            return
-        }
-
-        val isGranted = GoogleSignIn.hasPermissions(lastSignedInAccount, optionsToRegister)
-
-        if(isGranted){
-            try {
-
-
-                val typesBuilder = FitnessOptions.builder()
-                typesBuilder.addDataType(DataType.TYPE_WEIGHT)
-
-                val fitnessOptions = typesBuilder.build()
-                val googleSignInAccount = GoogleSignIn.getAccountForExtension(activity!!.applicationContext, fitnessOptions)
-
-                var onSuccess = { _: DataReadResponse  ->
-
-                    result.success(true) ;
-                }
-
-                var onError = { _:java.lang.Exception   ->
-
-                    result.success(false) ;
-                }
-                Fitness.getHistoryClient(activity!!.applicationContext, googleSignInAccount)
-                    .readData(DataReadRequest.Builder()
-                        .read(DataType.TYPE_WEIGHT)
-                        .setTimeRange(System.currentTimeMillis() - 1000, System.currentTimeMillis() , TimeUnit.MILLISECONDS)
-                        .build())
-                    .addOnSuccessListener (threadPoolExecutor!!, onSuccess)
-                    .addOnFailureListener(onError)
-
-            }catch (error:java.lang.Exception){
-
-                result.success(false) ;
-            }
-        }
+        result?.success(isGranted)
     }
 
     /**
@@ -1450,30 +1407,6 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
         } else { // / Permission already granted
             result?.success(true)
         }
-    }
-
-    /// force the "requestAuthorization" without checking for permissions
-    private fun forceRequestAuthorization(call: MethodCall, result: Result) {
-        if (activity == null) {
-
-            result.success(false)
-            return
-        }
-
-        val optionsToRegister = callToHealthTypes(call)
-        mResult = result
-
-        if (useHealthConnectIfAvailable && healthConnectAvailable) {
-            requestAuthorizationHC(call, result)
-            return
-        }
-
-        GoogleSignIn.requestPermissions(
-            activity!!,
-            GOOGLE_FIT_PERMISSIONS_REQUEST_CODE,
-            GoogleSignIn.getLastSignedInAccount(activity!!),
-            optionsToRegister)
-
     }
 
     /**
@@ -1626,11 +1559,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
             "writeWorkoutData" -> writeWorkoutData(call, result)
             "writeBloodPressure" -> writeBloodPressure(call, result)
             "writeBloodOxygen" -> writeBloodOxygen(call, result)
-            "writeNutritionData" -> writeNutritionData(call, result)
-            "deleteNutritionData" -> deleteNutritionData(call,result)
-            "forceRequestAuthorization" -> forceRequestAuthorization(call,result)
-            "isHealthConnectAvailable" -> isHealthConnectAvailable(call, result)
-            "isGoogleFitAvailable" -> isGoogleFitAvailable(call, result)
+            "writeMeal" -> writeMeal(call, result)
             else -> result.notImplemented()
         }
     }
@@ -1642,13 +1571,15 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
         binding.addActivityResultListener(this)
         activity = binding.activity
 
-        if ( healthConnectAvailable) {
-             val requestPermissionActivityContract = PermissionController.createRequestPermissionResultContract()
 
-             healthConnectRequestPermissionsLauncher =(activity as ComponentActivity).registerForActivityResult(requestPermissionActivityContract) { granted ->
-                 onHealthConnectPermissionCallback(granted);
-             }
-         }
+        if ( healthConnectAvailable) {
+            val requestPermissionActivityContract = PermissionController.createRequestPermissionResultContract()
+
+            healthConnectRequestPermissionsLauncher =(activity as ComponentActivity).registerForActivityResult(requestPermissionActivityContract) { granted ->
+                onHealthConnectPermissionCallback(granted);
+            }
+        }
+
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -1676,28 +1607,10 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
     fun checkAvailability() {
         healthConnectStatus = HealthConnectClient.getSdkStatus(context!!)
         healthConnectAvailable = healthConnectStatus == HealthConnectClient.SDK_AVAILABLE
-
-
-    }
-
-    fun isHealthConnectAvailable(call: MethodCall, result: Result) {
-        result.success(healthConnectAvailable)
-    }
-
-    fun isGoogleFitAvailable(call: MethodCall, result: Result) {
-        try {
-            context!!.packageManager.getPackageInfo("com.google.android.apps.fitness", PackageManager.GET_ACTIVITIES)
-            result.success(true)
-
-        } catch (e: Exception) {
-            result.success(false)
-
-        }
     }
 
     fun useHealthConnectIfAvailable(call: MethodCall, result: Result) {
-        val valueFromFlutter = call.argument<Boolean>("use") ?: false
-        useHealthConnectIfAvailable = valueFromFlutter
+        useHealthConnectIfAvailable = true
         result.success(null)
     }
 
@@ -1793,14 +1706,15 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 }
             }
         }
+        
         if(healthConnectRequestPermissionsLauncher == null) {
-             result.success(false)
-             Log.i("FLUTTER_HEALTH", "Permission launcher not found")
-             return;
-         }
+            result.success(false)
+            Log.i("FLUTTER_HEALTH", "Permission launcher not found")
+            return;
+        }
 
 
-         healthConnectRequestPermissionsLauncher!!.launch(permList.toSet());
+        healthConnectRequestPermissionsLauncher!!.launch(permList.toSet());
     }
 
     fun getHCData(call: MethodCall, result: Result) {
@@ -1878,8 +1792,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                             }
                         }
                     }
-                }
-                else {
+                } else {
                     for (rec in response.records) {
                         healthConnectData.addAll(convertRecord(rec, dataType))
                     }
@@ -1902,6 +1815,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is HeightRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.height.inMeters,
@@ -1911,6 +1825,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is BodyFatRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.percentage.value,
@@ -1920,6 +1835,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is StepsRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.count,
@@ -1929,6 +1845,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is ActiveCaloriesBurnedRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.energy.inKilocalories,
@@ -1938,6 +1855,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is HeartRateRecord -> return record.samples.map {
                 mapOf<String, Any>(
                     "value" to it.beatsPerMinute,
@@ -1947,6 +1865,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 )
             }
+
             is BodyTemperatureRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.temperature.inCelsius,
@@ -1956,6 +1875,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is BloodPressureRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to if (dataType == BLOOD_PRESSURE_DIASTOLIC) record.diastolic.inMillimetersOfMercury else record.systolic.inMillimetersOfMercury,
@@ -1965,6 +1885,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is OxygenSaturationRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.percentage.value,
@@ -1974,6 +1895,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is BloodGlucoseRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.level.inMilligramsPerDeciliter,
@@ -1983,6 +1905,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is DistanceRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.distance.inMeters,
@@ -1992,6 +1915,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is HydrationRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.volume.inLiters,
@@ -2001,6 +1925,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is SleepSessionRecord -> return listOf(
                 mapOf<String, Any>(
                     "date_from" to record.startTime.toEpochMilli(),
@@ -2010,6 +1935,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is SleepStageRecord -> return listOf(
                 mapOf<String, Any>(
                     "stage" to record.stage,
@@ -2020,6 +1946,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 ),
             )
+
             is RestingHeartRateRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.beatsPerMinute,
@@ -2029,6 +1956,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 )
             )
+
             is BasalMetabolicRateRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.basalMetabolicRate.inKilocaloriesPerDay,
@@ -2038,6 +1966,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 )
             )
+
             is FloorsClimbedRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.floors,
@@ -2047,11 +1976,27 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                     "source_name" to metadata.dataOrigin.packageName,
                 )
             )
+
             is RespiratoryRateRecord -> return listOf(
                 mapOf<String, Any>(
                     "value" to record.rate,
                     "date_from" to record.time.toEpochMilli(),
                     "date_to" to record.time.toEpochMilli(),
+                    "source_id" to "",
+                    "source_name" to metadata.dataOrigin.packageName,
+                )
+            )
+
+            is NutritionRecord -> return listOf(
+                mapOf<String, Any>(
+                    "calories" to record.energy!!.inKilocalories,
+                    "protein" to record.protein!!.inGrams,
+                    "carbs" to record.totalCarbohydrate!!.inGrams,
+                    "fat" to record.totalFat!!.inGrams,
+                    "name" to record.name!!,
+                    "mealType" to (MapTypeToMealTypeHC[record.mealType] ?: MEAL_TYPE_UNKNOWN),
+                    "date_from" to record.startTime.toEpochMilli(),
+                    "date_to" to record.endTime.toEpochMilli(),
                     "source_id" to "",
                     "source_name" to metadata.dataOrigin.packageName,
                 )
@@ -2076,16 +2021,19 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 percentage = Percentage(value),
                 zoneOffset = null,
             )
+
             HEIGHT -> HeightRecord(
                 time = Instant.ofEpochMilli(startTime),
                 height = Length.meters(value),
                 zoneOffset = null,
             )
+
             WEIGHT -> WeightRecord(
                 time = Instant.ofEpochMilli(startTime),
                 weight = Mass.kilograms(value),
                 zoneOffset = null,
             )
+
             STEPS -> StepsRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2093,6 +2041,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 startZoneOffset = null,
                 endZoneOffset = null,
             )
+
             ACTIVE_ENERGY_BURNED -> ActiveCaloriesBurnedRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2100,6 +2049,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 startZoneOffset = null,
                 endZoneOffset = null,
             )
+
             HEART_RATE -> HeartRateRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2112,21 +2062,25 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 startZoneOffset = null,
                 endZoneOffset = null,
             )
+
             BODY_TEMPERATURE -> BodyTemperatureRecord(
                 time = Instant.ofEpochMilli(startTime),
                 temperature = Temperature.celsius(value),
                 zoneOffset = null,
             )
+
             BLOOD_OXYGEN -> OxygenSaturationRecord(
                 time = Instant.ofEpochMilli(startTime),
                 percentage = Percentage(value),
                 zoneOffset = null,
             )
+
             BLOOD_GLUCOSE -> BloodGlucoseRecord(
                 time = Instant.ofEpochMilli(startTime),
                 level = BloodGlucose.milligramsPerDeciliter(value),
                 zoneOffset = null,
             )
+
             DISTANCE_DELTA -> DistanceRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2134,6 +2088,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 startZoneOffset = null,
                 endZoneOffset = null,
             )
+
             WATER -> HydrationRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2141,6 +2096,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 startZoneOffset = null,
                 endZoneOffset = null,
             )
+
             SLEEP_ASLEEP -> SleepStageRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2148,6 +2104,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 endZoneOffset = null,
                 stage = SleepStageRecord.STAGE_TYPE_SLEEPING,
             )
+
             SLEEP_LIGHT -> SleepStageRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2155,6 +2112,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 endZoneOffset = null,
                 stage = SleepStageRecord.STAGE_TYPE_LIGHT,
             )
+
             SLEEP_DEEP -> SleepStageRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2162,6 +2120,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 endZoneOffset = null,
                 stage = SleepStageRecord.STAGE_TYPE_DEEP,
             )
+
             SLEEP_REM -> SleepStageRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2169,6 +2128,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 endZoneOffset = null,
                 stage = SleepStageRecord.STAGE_TYPE_REM,
             )
+
             SLEEP_OUT_OF_BED -> SleepStageRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2176,6 +2136,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 endZoneOffset = null,
                 stage = SleepStageRecord.STAGE_TYPE_OUT_OF_BED,
             )
+
             SLEEP_AWAKE -> SleepStageRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2191,16 +2152,19 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 startZoneOffset = null,
                 endZoneOffset = null,
             )
+
             RESTING_HEART_RATE -> RestingHeartRateRecord(
                 time = Instant.ofEpochMilli(startTime),
                 beatsPerMinute = value.toLong(),
                 zoneOffset = null,
             )
+
             BASAL_ENERGY_BURNED -> BasalMetabolicRateRecord(
                 time = Instant.ofEpochMilli(startTime),
                 basalMetabolicRate = Power.kilocaloriesPerDay(value),
                 zoneOffset = null,
             )
+
             FLIGHTS_CLIMBED -> FloorsClimbedRecord(
                 startTime = Instant.ofEpochMilli(startTime),
                 endTime = Instant.ofEpochMilli(endTime),
@@ -2208,6 +2172,7 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
                 startZoneOffset = null,
                 endZoneOffset = null,
             )
+
             RESPIRATORY_RATE -> RespiratoryRateRecord(
                 time = Instant.ofEpochMilli(startTime),
                 rate = value,
@@ -2217,66 +2182,9 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
             BLOOD_PRESSURE_SYSTOLIC -> throw IllegalArgumentException("You must use the [writeBloodPressure] API ")
             BLOOD_PRESSURE_DIASTOLIC -> throw IllegalArgumentException("You must use the [writeBloodPressure] API ")
             WORKOUT -> throw IllegalArgumentException("You must use the [writeWorkoutData] API ")
+            NUTRITION -> throw IllegalArgumentException("You must use the [writeMeal] API ")
             else -> throw IllegalArgumentException("The type $type was not supported by the Health plugin or you must use another API ")
         }
-        scope.launch {
-            try {
-                healthConnectClient.insertRecords(listOf(record))
-                result.success(true)
-            } catch (e: Exception) {
-                result.success(false)
-            }
-        }
-    }
-
-    fun writeNutritionHCData(call: MethodCall, result: Result) {
-
-        val startTime = call.argument<Long>("startTime")!!
-        val endTime = call.argument<Long>("endTime")!!
-        val mealType = call.argument<String>("mealType")!!
-        val foodName = call.argument<String>("foodName")!!
-
-        val record = NutritionRecord(
-            startTime = Instant.ofEpochMilli(startTime),
-            endTime = Instant.ofEpochMilli(endTime),
-            startZoneOffset = null,
-            endZoneOffset = null,
-            name =  foodName,
-            mealType= keyToMealType(mealType),
-            totalFat = (call.argument<Double>("totalFat")?.toFloat())?.grams,
-            sodium =  (call.argument<Double>("totalSodium")?.toFloat())?.milligrams,
-            saturatedFat =  (call.argument<Double>("totalSaturatedFat")?.toFloat())?.grams,
-            protein = (call.argument<Double>("totalProtein")?.toFloat())?.grams,
-            totalCarbohydrate =  (call.argument<Double>("totalTotalCarbs")?.toFloat())?.grams,
-            cholesterol =  (call.argument<Double>("totalCholesterol")?.toFloat())?.milligrams,
-            energy =  (call.argument<Double>("totalCalories")?.toFloat())?.kilocalories,
-            sugar =  (call.argument<Double>("totalSugar")?.toFloat())?.grams,
-            dietaryFiber =  (call.argument<Double>("totalDietaryFiber")?.toFloat())?.grams,
-            potassium =  (call.argument<Double>("totalPotassium")?.toFloat())?.milligrams,
-            caffeine =  (call.argument<Double>("dietaryCaffeine")?.toFloat())?.milligrams,
-            calcium = (call.argument<Double>("dietaryCalcium")?.toFloat())?.milligrams ,
-            copper =  (call.argument<Double>("dietaryCopper")?.toFloat())?.milligrams,
-            monounsaturatedFat = (call.argument<Double>("dietaryFatMonounsaturated")?.toFloat())?.grams ,
-            polyunsaturatedFat = (call.argument<Double>("dietaryFatPolyunsaturated")?.toFloat())?.grams ,
-            folate = (call.argument<Double>("dietaryFolate")?.toFloat())?.micrograms ,
-            iron =  (call.argument<Double>("dietaryIron")?.toFloat())?.milligrams,
-            magnesium =  (call.argument<Double>("dietaryMagnesium")?.toFloat())?.milligrams,
-            manganese = (call.argument<Double>("dietaryManganese")?.toFloat())?.milligrams ,
-            niacin = (call.argument<Double>("dietaryNiacin")?.toFloat())?.milligrams ,
-            pantothenicAcid = (call.argument<Double>("dietaryPantothenicAcid")?.toFloat())?.milligrams ,
-            phosphorus = (call.argument<Double>("dietaryPhosphorus")?.toFloat())?.milligrams ,
-            riboflavin =  (call.argument<Double>("dietaryRiboflavin")?.toFloat())?.milligrams,
-            selenium = (call.argument<Double>("dietarySelenium")?.toFloat())?.micrograms ,
-            thiamin =  (call.argument<Double>("dietaryThiamin")?.toFloat())?.milligrams,
-            vitaminA =  (call.argument<Double>("dietaryVitaminA")?.toFloat())?.micrograms,
-            vitaminB6 = (call.argument<Double>("dietaryVitaminB6")?.toFloat())?.milligrams ,
-            vitaminB12 =  (call.argument<Double>("dietaryVitaminB12")?.toFloat())?.micrograms,
-            vitaminC =  (call.argument<Double>("dietaryVitaminC")?.toFloat())?.milligrams,
-            vitaminD =  (call.argument<Double>("dietaryVitaminD")?.toFloat())?.micrograms,
-            vitaminE = (call.argument<Double>("dietaryVitaminE")?.toFloat())?.milligrams ,
-            vitaminK = (call.argument<Double>("dietaryVitaminK")?.toFloat())?.micrograms ,
-            zinc =  (call.argument<Double>("dietaryZinc")?.toFloat())?.milligrams,
-        )
         scope.launch {
             try {
                 healthConnectClient.insertRecords(listOf(record))
@@ -2401,25 +2309,6 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
         }
     }
 
-    fun deleteNutritionHCData(call: MethodCall, result: Result) {
-
-        val startTime = Instant.ofEpochMilli(call.argument<Long>("startTime")!!)
-        val endTime = Instant.ofEpochMilli(call.argument<Long>("endTime")!!)
-        val classType = NutritionRecord::class;
-
-        scope.launch {
-            try {
-                healthConnectClient.deleteRecords(
-                    recordType = classType,
-                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime),
-                )
-                result.success(true)
-            } catch (e: Exception) {
-                result.success(false)
-            }
-        }
-    }
-
     val MapSleepStageToType = hashMapOf<Int, String>(
         1 to SLEEP_AWAKE,
         2 to SLEEP_ASLEEP,
@@ -2427,6 +2316,30 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
         4 to SLEEP_LIGHT,
         5 to SLEEP_DEEP,
         6 to SLEEP_REM,
+    )
+
+    private val MapMealTypeToTypeHC = hashMapOf<String, Int>(
+        BREAKFAST to MEAL_TYPE_BREAKFAST,
+        LUNCH to MEAL_TYPE_LUNCH,
+        DINNER to MEAL_TYPE_DINNER,
+        SNACK to MEAL_TYPE_SNACK,
+        MEAL_UNKNOWN to MEAL_TYPE_UNKNOWN,
+    )
+
+    private val MapTypeToMealTypeHC = hashMapOf<Int, String>(
+        MEAL_TYPE_BREAKFAST to BREAKFAST,
+        MEAL_TYPE_LUNCH to LUNCH,
+        MEAL_TYPE_DINNER to DINNER,
+        MEAL_TYPE_SNACK to SNACK,
+        MEAL_TYPE_UNKNOWN to MEAL_UNKNOWN,
+    )
+
+    private val MapMealTypeToType = hashMapOf<String, Int>(
+        BREAKFAST to Field.MEAL_TYPE_BREAKFAST,
+        LUNCH to Field.MEAL_TYPE_LUNCH,
+        DINNER to Field.MEAL_TYPE_DINNER,
+        SNACK to Field.MEAL_TYPE_SNACK,
+        MEAL_UNKNOWN to Field.MEAL_TYPE_UNKNOWN,
     )
 
     val MapToHCType = hashMapOf(
@@ -2452,11 +2365,11 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
         SLEEP_OUT_OF_BED to SleepStageRecord::class,
         SLEEP_SESSION to SleepSessionRecord::class,
         WORKOUT to ExerciseSessionRecord::class,
+        NUTRITION to NutritionRecord::class,
         RESTING_HEART_RATE to RestingHeartRateRecord::class,
         BASAL_ENERGY_BURNED to BasalMetabolicRateRecord::class,
         FLIGHTS_CLIMBED to FloorsClimbedRecord::class,
         RESPIRATORY_RATE to RespiratoryRateRecord::class,
-        NUTRIENT to NutritionRecord::class,
         // MOVE_MINUTES to TODO: Find alternative?
         // TODO: Implement remaining types
         // "ActiveCaloriesBurned" to ActiveCaloriesBurnedRecord::class,
@@ -2479,7 +2392,6 @@ class HealthPlugin(private var channel: MethodChannel? = null) :
         // "LeanBodyMass" to LeanBodyMassRecord::class,
         // "MenstruationFlow" to MenstruationFlowRecord::class,
         // "MenstruationPeriod" to MenstruationPeriodRecord::class,
-
         // "Nutrition" to NutritionRecord::class,
         // "OvulationTest" to OvulationTestRecord::class,
         // "OxygenSaturation" to OxygenSaturationRecord::class,
