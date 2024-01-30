@@ -50,7 +50,7 @@ class _HealthAppState extends State<HealthApp> {
   //   // HealthDataType.AUDIOGRAM
   // ];
 
-  // with coresponsing permissions
+  // with corresponding permissions
   // READ only
   // final permissions = types.map((e) => HealthDataAccess.READ).toList();
   // Or READ and WRITE
@@ -149,39 +149,8 @@ class _HealthAppState extends State<HealthApp> {
     // success &= await health.writeHealthData(0.0, HealthDataType.SLEEP_AWAKE, earlier, now);
     // success &= await health.writeHealthData(0.0, HealthDataType.SLEEP_DEEP, earlier, now);
 
-    bool success = true;
-    success &= await health.writeNutritionData(
-        endTime: now,
-        startTime: earlier,
-        foodName: 'test food',
-        mealType: MealType.MEAL_TYPE_DINNER,
-        dietaryCaffeine: 10,
-        dietaryCalcium: 11,
-        dietaryCopper: 12,
-        dietaryFatMonounsaturated: 13,
-        dietaryFatPolyunsaturated: 14,
-        dietaryFolate: 15,
-        dietaryIron: 16,
-        dietaryMagnesium: 17,
-        dietaryManganese: 18,
-        dietaryNiacin: 19,
-        dietaryPantothenicAcid: 20,
-        dietaryPhosphorus: 21,
-        dietaryRiboflavin: 22,
-        dietarySelenium: 23,
-        dietaryThiamin: 24,
-        dietaryVitaminA: 25,
-        dietaryVitaminB12: 26,
-        dietaryVitaminB6: 27,
-        dietaryVitaminC: 28,
-        dietaryVitaminD: 29,
-        dietaryVitaminE: 30,
-        dietaryVitaminK: 31,
-        dietaryZinc: 32,
-        totalCalories: 33,
-        totalProtein: 38,
-        totalSaturatedFat: 39,
-        totalTotalCarbs: 42);
+    success &= await health.writeMeal(
+        earlier, now, 1000, 50, 25, 50, "Banana", MealType.SNACK);
     // Store an Audiogram
     // Uncomment these on iOS - only available on iOS
     // const frequencies = [125.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0];
@@ -287,6 +256,15 @@ class _HealthAppState extends State<HealthApp> {
               title: Text(
                   "${p.typeString}: ${(p.value as WorkoutHealthValue).totalEnergyBurned} ${(p.value as WorkoutHealthValue).totalEnergyBurnedUnit?.name}"),
               trailing: Text('${(p.value as WorkoutHealthValue).workoutActivityType.name}'),
+              subtitle: Text('${p.dateFrom} - ${p.dateTo}'),
+            );
+          }
+          if (p.value is NutritionHealthValue) {
+            return ListTile(
+              title: Text(
+                  "${p.typeString} ${(p.value as NutritionHealthValue).mealType}: ${(p.value as NutritionHealthValue).name}"),
+              trailing:
+                  Text('${(p.value as NutritionHealthValue).calories} kcal'),
               subtitle: Text('${p.dateFrom} - ${p.dateTo}'),
             );
           }
